@@ -25,34 +25,40 @@ fn main() {
     let mut total_bytes: u64 = 0;
     let mut source: String = "".to_owned();
     let mut target: String = "".to_owned();
-    if args().count() < 3 {
-        println!("Usage: nerja <SOURCE> <TARGET>
+    let mut out_dir: PathBuf = PathBuf::new();
+    if args().count() < 2 {
+        println!("Usage: nerja <SOURCE> [TARGET]
 
 This program scans the SOURCE for *.jpg, *.jpeg or *.png images that are
 in landscape orientation, and are more than 1920 pixels wide.
 
 Found images are copied recursively to the TARGET with original folder structure.
+If TARGET path is not set, Nerja will only scan and report the SOURCE folder.
 
 Options:
     SOURCE      Source path to scan for images (quote paths with spaces).
-    TARGET      Target folder to copy HD-quality landscape images.
+    TARGET      Optional. Target folder to copy HD-quality landscape images.
 ");
         return
-    } else if args().count() > 2 {
+    }
+    if args().count() >= 2 {
         source = args().nth(1).unwrap();
+        println!("Scan source: \t\"{}\"", source);
+        if !Path::new(source.as_str()).is_dir() {
+            println!("Error: Source path \"{}\" does not exist!", source);
+            return
+        }
+    }
+    if args().count() >= 3 {
         target = args().nth(2).unwrap();
-    }
-    println!("Scan source: \t\"{}\"\nTarget path: \t\"{}\"", source, target);
-    if !Path::new(source.as_str()).is_dir() {
-        println!("Error: Source path \"{}\" does not exist!", source);
-        return
-    }
-    if !Path::new(target.as_str()).is_dir() {
-        println!("Error: Target path \"{}\" does not exist!", target);
-        return
+        println!("Target path: \t\"{}\"", target);
+        if !Path::new(target.as_str()).is_dir() {
+            println!("Error: Target path \"{}\" does not exist!", target);
+            return
+        }
+        out_dir = PathBuf::from(target.clone());
     }
     let in_dir = PathBuf::from(source);
-    let out_dir = PathBuf::from(target);
     println!("Scanning images, stand by...");
     let max_files_count = WalkDir::new(&in_dir).into_iter().filter_map(|file| file.ok()).count();
     let pb = ProgressBar::new(max_files_count.try_into().unwrap());
@@ -72,6 +78,10 @@ Options:
                 if width > 0 && height > 0 {
                     if width > height {
                         total_landscape += 1;
+                        if target.is_empty() {
+                            // report only
+                            continue
+                        }
                         let from = file.path();
                         let path_to_copy = from.strip_prefix(&in_dir)
                             .expect("path is not part of the prefix");
