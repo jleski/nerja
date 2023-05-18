@@ -100,13 +100,11 @@ Options:
                 if width > 0 && height > 0 {
                     if width > height {
                         let mut widescreen_suitable = false;
-                        let width_ceil = (((width/100) as f64).round() as usize) * 100;
-                        let height_ceil = (((height/100) as f64).round() as usize) * 100;
                         total_landscape += 1;
-                        let r = gcd_cached(width_ceil, height_ceil, &mut gcd_cache);
-                        aspect_ratios.insert(format!("{}:{}",width_ceil/r,height_ceil/r));
-                        let aspect_ratio_decimal = (width_ceil / r) as f64 / (height_ceil/r) as f64;
-                        if aspect_ratio_decimal >= 1.6 && aspect_ratio_decimal <= 1.9 {
+                        let r = gcd_cached(width, height, &mut gcd_cache);
+                        aspect_ratios.insert(format!("{}:{}",width/r,height/r));
+                        let aspect_ratio_decimal = (width / r) as f64 / (height/r) as f64;
+                        if aspect_ratio_decimal >= 1.6 && aspect_ratio_decimal <= 2.7 {
                             total_suitable += 1;
                             widescreen_suitable = true;
                         } else {
