@@ -23,5 +23,5 @@ jobs:
     - name: Upload artifacts
       uses: actions/upload-artifact@v3
       with:
-        name: build-artifacts
-        path: target/debug/
+        name: nerja-dev
+        path: target/debug/nerja
