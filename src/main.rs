@@ -8,6 +8,7 @@ use std::fs;
 use std::path::PathBuf;
 use indicatif::ProgressBar;
 use std::env::args;
+use uuid::Uuid;
 
 fn get_extension_from_filename(filename: &str) -> Option<&str> {    
     Path::new(filename)
@@ -32,6 +33,16 @@ fn gcd_cached (a: usize, b: usize, cache: &mut HashMap<String, usize>) -> usize 
     return r;
 }
 
+fn change_file_name(path: impl AsRef<Path>, name: &str) -> PathBuf {
+    let path = path.as_ref();
+    let mut result = path.to_owned();
+    result.set_file_name(name);
+    if let Some(ext) = path.extension() {
+        result.set_extension(ext);
+    }
+    result
+}
+
 fn main() {
     let mut total_landscape = 0;
     let mut total_portrait = 0;
@@ -43,13 +54,14 @@ fn main() {
     let mut total_bytes: u64 = 0;
     let mut total_suitable = 0;
     let mut total_unsuitable = 0;
+    let mut rename_files = false;
     let mut source: String = "".to_owned();
     let mut target: String = "".to_owned();
     let mut out_dir: PathBuf = PathBuf::new();
     let mut gcd_cache: HashMap<String, usize> = HashMap::new();
     let mut aspect_ratios: HashSet<String> = HashSet::new();
     if args().count() < 2 {
-        println!("Usage: nerja <SOURCE> [TARGET]
+        println!("Usage: nerja <SOURCE> [TARGET] [-g]
 
 This program scans the SOURCE for *.jpg, *.jpeg or *.png images that are
 in landscape orientation, and are more than 1920 pixels wide.
@@ -60,6 +72,7 @@ If TARGET path is not set, Nerja will only scan and report the SOURCE folder.
 Options:
     SOURCE      Source path to scan for images (quote paths with spaces).
     TARGET      Optional. Target folder to copy HD-quality landscape images.
+    -g          Optional when target set. Rename target file names using random GUID.
 ");
         return
     }
@@ -79,6 +92,12 @@ Options:
             return
         }
         out_dir = PathBuf::from(target.clone());
+        if args().count() >= 4 {
+            if args().nth(3).unwrap().eq("-g") {
+                println!("Generating random UUID file names when copying to target.");
+                rename_files = true;
+            }
+        }
     }
     let in_dir = PathBuf::from(source);
     println!("Scanning images, stand by...");
@@ -119,12 +138,29 @@ Options:
                             .expect("path is not part of the prefix");
                         let mut to = out_dir.clone();
                         if widescreen_suitable {
-                            to = to.join("widescreen")
+                            to = to.join("widescreen\\")
                         } else {
-                            to = to.join("normal")
+                            to = to.join("normal\\")
                         }
                         //let to = out_dir.join(path_to_copy);
-                        to = to.join(path_to_copy);
+                        if rename_files {
+                            let mut j = 0;
+                            to = change_file_name(to.join(file.path().file_name().unwrap()), Uuid::new_v4().to_string().as_str());
+                            while std::path::Path::new(to.join(file.path().file_name().unwrap()).as_os_str()).exists() {
+                                j += 1;
+                                to = change_file_name(to, Uuid::new_v4().to_string().as_str());
+                                if j > 10 {
+                                    println!("warning: all generated UUID filenames for this source already exists: {}", imagefilename);
+                                    break;
+                                }
+                            }
+                        } else {
+                            to = to.join(path_to_copy);
+                        }
+                        // if 1 != 0 {
+                        //     println!("[dry-run] would copy (UHD+ {}) {}", widescreen_suitable, to.to_string_lossy());
+                        //     continue
+                        // }
                         let to_dir = to.parent().expect("target path must be in some directory");
                         if !Path::new(to_dir).is_dir() {
                             fs::create_dir_all(to_dir).expect("destination path creation failed");
