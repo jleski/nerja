@@ -1,0 +1,58 @@
+name: Build, Version, and Release
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions-rust-lang/setup-rust-toolchain@v1
+
+    - name: Build
+      run: cargo build
+
+    - name: Run tests
+      run: cargo test
+
+  version:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    - name: Bump version and push tag
+      uses: anothrNick/github-tag-action@1.71.0
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        DEFAULT_BUMP: patch
+        WITH_V: true
+    outputs:
+      new_tag: ${{ steps.tag_version.outputs.new_tag }}
+
+  release:
+    needs: version
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions-rust-lang/setup-rust-toolchain@v1
+    - name: Build release
+      run: cargo build --release
+    - name: Create Release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: ${{ needs.version.outputs.new_tag }}
+        name: Release ${{ needs.version.outputs.new_tag }}
+        draft: false
+        prerelease: false
+        files: |
+          ./target/release/nerja
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
