@@ -10,6 +10,9 @@ use indicatif::ProgressBar;
 use std::env::args;
 use uuid::Uuid;
 
+const VERSION: &str = "0.2.0";
+const AUTHOR: &str = "Jaakko Leskinen <jaakko.leskinen@gmail.com>";
+
 fn get_extension_from_filename(filename: &str) -> Option<&str> {    
     Path::new(filename)
     .extension()
@@ -31,16 +34,6 @@ fn gcd_cached (a: usize, b: usize, cache: &mut HashMap<String, usize>) -> usize 
     let r = gcd(a,b);
     cache.insert(cache_key, r);
     return r;
-}
-
-fn change_file_name(path: impl AsRef<Path>, name: &str) -> PathBuf {
-    let path = path.as_ref();
-    let mut result = path.to_owned();
-    result.set_file_name(name);
-    if let Some(ext) = path.extension() {
-        result.set_extension(ext);
-    }
-    result
 }
 
 fn main() {
@@ -114,6 +107,11 @@ fn parse_args() -> (String, String, bool) {
         std::process::exit(1);
     }
 
+    if args[1] == "-v" || args[1] == "--version" {
+        println!("Nerja v{}", VERSION);
+        std::process::exit(0);
+    }
+
     let source = args[1].clone();
     let target = if args.len() >= 3 { args[2].clone() } else { String::new() };
     let rename_files = args.len() >= 4 && args[3] == "-g";
@@ -123,19 +121,19 @@ fn parse_args() -> (String, String, bool) {
 }
 
 fn print_usage() {
-    println!("Usage: nerja <SOURCE> [TARGET] [-g]
-
-This program scans the SOURCE for *.jpg, *.jpeg or *.png images that are
-in landscape orientation, and are more than 1920 pixels wide.
-
-Found images are copied recursively to the TARGET with original folder structure.
-If TARGET path is not set, Nerja will only scan and report the SOURCE folder.
-
-Options:
-    SOURCE      Source path to scan for images (quote paths with spaces).
-    TARGET      Optional. Target folder to copy HD-quality landscape images.
-    -g          Optional when target set. Rename target file names using random GUID.
-");
+    println!("Nerja v{} by {}", VERSION, AUTHOR);
+    println!("Usage: nerja <SOURCE> [TARGET] [-g]");
+    println!();
+    println!("This program scans the SOURCE for *.jpg, *.jpeg or *.png images that are");
+    println!("in landscape orientation, and are more than 1920 pixels wide.");
+    println!();
+    println!("Found images are copied recursively to the TARGET with original folder structure.");
+    println!("If TARGET path is not set, Nerja will only scan and report the SOURCE folder.");
+    println!();
+    println!("Options:");
+    println!("    SOURCE         Source path to scan for images (quote paths with spaces)");
+    println!("    TARGET         Optional. Target folder to copy HD-quality landscape images");
+    println!("    -g             Optional when target set. Rename target file names using random GUID");
 }
 
 fn validate_paths(source: &str, target: &str) {
@@ -211,7 +209,8 @@ fn is_widescreen_suitable(aspect_ratio: &str) -> bool {
 fn copy_image(file: &walkdir::DirEntry, in_dir: &Path, out_dir: &Path, widescreen_suitable: bool, rename_files: bool, stats: &mut Stats) {
     let from = file.path();
     let mut to = out_dir.to_path_buf();
-    to = to.join(if widescreen_suitable { "widescreen" } else { "normal" });
+    let subdir = if widescreen_suitable { "widescreen" } else { "normal" };
+    to = to.join(subdir);
 
     if rename_files {
         to = generate_unique_filename(to, file);
@@ -238,9 +237,37 @@ fn copy_image(file: &walkdir::DirEntry, in_dir: &Path, out_dir: &Path, widescree
 }
 
 fn generate_unique_filename(mut to: PathBuf, file: &walkdir::DirEntry) -> PathBuf {
+    use std::fs::File;
+    use std::io::{BufReader, Read};
+    use blake3;
+
+    let original_extension = file.path().extension().and_then(OsStr::to_str).unwrap_or("");
+
+    let checksum = {
+        let file = File::open(file.path()).expect("Failed to open file");
+        let mut reader = BufReader::new(file);
+        let mut hasher = blake3::Hasher::new();
+        let mut buffer = [0; 65536]; // Increased buffer size for better performance
+        loop {
+            let count = reader.read(&mut buffer).expect("Failed to read file");
+            if count == 0 {
+                break;
+            }
+            hasher.update(&buffer[..count]);
+        }
+        hasher.finalize().to_hex()
+    };
+    
+    let new_filename = format!("{}.{}", checksum, original_extension);
+    to = to.join(new_filename);
+    if !to.exists() {
+        return to;
+    }
+
     let mut attempts = 0;
     loop {
-        to = change_file_name(to, &Uuid::new_v4().to_string());
+        let new_filename = format!("{}.{}", Uuid::new_v4().to_string(), original_extension);
+        to = to.with_file_name(new_filename);
         if !to.exists() || attempts > 10 {
             break;
         }
@@ -253,8 +280,12 @@ fn generate_unique_filename(mut to: PathBuf, file: &walkdir::DirEntry) -> PathBu
 }
 
 fn print_stats(stats: &Stats) {
-    println!("TOTAL {} HD images, {} landscape and {} portrait", stats.total_hd, stats.total_landscape, stats.total_portrait);
-    println!("WIDE SCREEN+ SUITABLE {} images and {} unsuitable images", stats.total_suitable, stats.total_unsuitable);
-    println!("SKIPPED {}, COPIED {} HD landscape images", stats.total_skipped, stats.total_copied);
-    println!("total of {} files, {} images, {} bytes", stats.total_files, stats.total_images, stats.total_bytes);
+    println!("┌─────────────────────────────────────────────────────────────────────────┐");
+    println!("│ SUMMARY                                                                 │");
+    println!("├─────────────────────────────────────────────────────────────────────────┤");
+    println!("│ HD Images:        {:5} ({:5} landscape, {:5} portrait)               │", stats.total_hd, stats.total_landscape, stats.total_portrait);
+    println!("│ Wide Screen:      {:5} suitable, {:5} unsuitable                      │", stats.total_suitable, stats.total_unsuitable);
+    println!("│ Processing:       {:5} skipped, {:5} copied (HD landscape)            │", stats.total_skipped, stats.total_copied);
+    println!("│ Total:            {:5} files, {:5} images, {:12} bytes         │", stats.total_files, stats.total_images, stats.total_bytes);
+    println!("└─────────────────────────────────────────────────────────────────────────┘");
 }

@@ -1,0 +1,65 @@
+version: '3'
+
+tasks:
+  default:
+    desc: Default task to list all available tasks
+    cmds:
+      - task --list
+
+  build:
+    desc: Build the development version
+    cmds:
+      - cargo build
+
+  run:
+    desc: Run the development version
+    cmds:
+      - cargo run
+
+  build-release:
+    desc: Build the release version
+    cmds:
+      - cargo build --release
+
+  test:
+    desc: Run the tests
+    cmds:
+      - cargo test
+
+  clean:
+    desc: Clean the build artifacts
+    cmds:
+      - cargo clean
+
+  dev:
+    desc: Build and run the development version
+    cmds:
+      - task: build
+      - ./target/debug/nerja
+
+  build-windows:
+    desc: Cross-compile for Windows using Cross and containerized building
+    cmds:
+      - cross build --target x86_64-pc-windows-gnu
+
+  build-macos:
+    desc: Cross-compile for MacOS using Cross and containerized building
+    cmds:
+      - cross build --target x86_64-apple-darwin
+
+  release-windows:
+    desc: Cross-compile for Windows using Cross and containerized building
+    cmds:
+      - cross build --release --target x86_64-pc-windows-gnu
+
+  release-macos:
+    desc: Cross-compile for MacOS using Cross and containerized building
+    cmds:
+      - cross build --release --target x86_64-apple-darwin
+
+  build-all-platforms:
+    desc: Build for all platforms
+    cmds:
+      - task: build
+      - task: build-windows
+      - task: build-macos
