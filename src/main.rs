@@ -187,10 +187,15 @@ fn process_hd_image(file: &walkdir::DirEntry, width: u32, height: u32, in_dir: &
         }
 
         if !out_dir.as_os_str().is_empty() {
-            copy_image(file, in_dir, out_dir, widescreen_suitable, rename_files, stats);
+            copy_image(file, in_dir, out_dir, rename_files, stats, "widescreen");
         }
     } else if width < height {
         stats.total_portrait += 1;
+        if height > 1920 {
+            if !out_dir.as_os_str().is_empty() {
+                copy_image(file, in_dir, out_dir, rename_files, stats, "portrait");
+            }
+        }
     }
 }
 
@@ -206,10 +211,9 @@ fn is_widescreen_suitable(aspect_ratio: &str) -> bool {
     ratio >= 1.6 && ratio <= 2.7
 }
 
-fn copy_image(file: &walkdir::DirEntry, in_dir: &Path, out_dir: &Path, widescreen_suitable: bool, rename_files: bool, stats: &mut Stats) {
+fn copy_image(file: &walkdir::DirEntry, in_dir: &Path, out_dir: &Path, rename_files: bool, stats: &mut Stats, subdir: &str) {
     let from = file.path();
     let mut to = out_dir.to_path_buf();
-    let subdir = if widescreen_suitable { "widescreen" } else { "normal" };
     to = to.join(subdir);
 
     if rename_files {
