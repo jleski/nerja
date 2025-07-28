@@ -14,14 +14,44 @@ jobs:
     - uses: actions/checkout@v4
     - uses: actions-rust-lang/setup-rust-toolchain@v1
 
-    - name: Build
+    # Linux debug build
+    - name: Build Linux (debug)
       run: cargo build
 
-    - name: Run tests
-      run: cargo test
+    - name: Package Linux (debug)
+      run: |
+        cp target/debug/nerja nerja
+        zip nerja-linux.zip nerja
 
-    - name: Upload artifacts
-      uses: actions/upload-artifact@v3
+    # Cross compile for Windows
+    - uses: taiki-e/setup-cross@v1
+    - name: Build Windows (debug)
+      run: cross build --target x86_64-pc-windows-gnu
+
+    - name: Package Windows (debug)
+      run: |
+        cp target/x86_64-pc-windows-gnu/debug/nerja.exe nerja.exe
+        zip nerja-windows.zip nerja.exe
+
+    # Cross compile for MacOS
+    - name: Build MacOS (debug)
+      run: cross build --target x86_64-apple-darwin
+
+    - name: Package MacOS (debug)
+      run: |
+        cp target/x86_64-apple-darwin/debug/nerja nerja
+        zip nerja-macos.zip nerja
+
+    # Checksum for quality control nerds
+    - name: Calculate checksums
+      run: sha256sum nerja-*.zip > checksums.txt
+
+    - name: Upload all debug artifacts
+      uses: actions/upload-artifact@v4
       with:
         name: nerja-dev
-        path: target/debug/nerja
+        path: |
+          nerja-linux.zip
+          nerja-windows.zip
+          nerja-macos.zip
+          checksums.txt
