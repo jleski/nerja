@@ -9,39 +9,63 @@ on:
 
 jobs:
   build:
+    strategy:
+      matrix:
+        target:
+          - x86_64-unknown-linux-gnu
+          - x86_64-apple-darwin
+          - x86_64-pc-windows-msvc
+
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
-    - uses: actions-rust-lang/setup-rust-toolchain@v1
+      with:
+        ref: ${{ github.sha }}
 
-    # Linux debug build
-    - name: Build Linux (debug)
-      run: cargo build
+    - name: Install Rust
+      run: rustup update stable
 
-    - name: Package Linux (debug)
+    - name: Install cross-compilation tools
+      uses: taiki-e/setup-cross-toolchain-action@v1
+      with:
+        target: ${{ matrix.target }}
+
+    # Build
+    - run: cargo build
+
+    - name: Package
       run: |
-        cp target/debug/nerja nerja
-        zip nerja-linux.zip nerja
+        if [ "${{ matrix.target }}" = "x86_64-pc-windows-msvc" ]; then
+          cp target/debug/nerja.exe nerja.exe
+          zip nerja-${{ matrix.target }}.zip nerja.exe
+        else
+          cp target/debug/nerja nerja
+          zip nerja-${{ matrix.target }}.zip nerja
+        fi
 
-    # Cross compile for Windows
-    - uses: taiki-e/setup-cross@v1
-    - name: Build Windows (debug)
-      run: cross build --target x86_64-pc-windows-gnu
+  version:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    - name: Bump version and push tag
+      uses: anothrNick/github-tag-action@1.71.0
+      id: tag_version
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        DEFAULT_BUMP: patch
+        PRERELEASE_SUFFIX: beta
+        PRERELEASE: true
+        WITH_V: true
+    outputs:
+      new_tag: ${{ steps.tag_version.outputs.new_tag }}
 
-    - name: Package Windows (debug)
-      run: |
-        cp target/x86_64-pc-windows-gnu/debug/nerja.exe nerja.exe
-        zip nerja-windows.zip nerja.exe
-
-    # Cross compile for MacOS
-    - name: Build MacOS (debug)
-      run: cross build --target x86_64-apple-darwin
-
-    - name: Package MacOS (debug)
-      run: |
-        cp target/x86_64-apple-darwin/debug/nerja nerja
-        zip nerja-macos.zip nerja
-
+  release:
+    needs: version
+    runs-on: ubuntu-latest
+    steps:
     # Checksum for quality control nerds
     - name: Calculate checksums
       run: sha256sum nerja-*.zip > checksums.txt
@@ -49,9 +73,20 @@ jobs:
     - name: Upload all debug artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: nerja-dev
+        name: nerja-devel
         path: |
-          nerja-linux.zip
-          nerja-windows.zip
-          nerja-macos.zip
+          nerja-*.zip
           checksums.txt
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: ${{ needs.version.outputs.new_tag }}
+        name: Beta Release ${{ needs.version.outputs.new_tag }}
+        draft: false
+        prerelease: true
+        files: |
+          nerja-*.zip
+          checksums.txt
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
