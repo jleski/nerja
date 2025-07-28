@@ -13,10 +13,11 @@ use uuid::Uuid;
 const VERSION: &str = "0.2.0";
 const AUTHOR: &str = "Jaakko Leskinen <jaakko.leskinen@gmail.com>";
 
-fn get_extension_from_filename(filename: &str) -> Option<&str> {    
+fn get_extension_from_filename(filename: &str) -> Option<String> {    
     Path::new(filename)
-    .extension()
-    .and_then(OsStr::to_str)
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .map(|s| s.to_lowercase())
 }
 
 fn gcd (a:usize, b: usize) -> usize{
@@ -42,26 +43,27 @@ fn main() {
     let in_dir = PathBuf::from(&source);
     let out_dir = PathBuf::from(&target);
 
-    println!("Scanning images, stand by...");
+    println!("Scanning media files, stand by...");
     let pb = create_progress_bar(&in_dir);
 
     for file in WalkDir::new(&in_dir).into_iter().filter_map(|file| file.ok()) {
         stats.total_files += 1;
         pb.inc(1);
 
-        if !is_valid_image_file(&file) {
-            continue;
+        if is_valid_image_file(&file) {
+            stats.total_images += 1;
+            let (width, height) = get_image_dimensions(&file);
+
+            if width <= 1920 {
+                continue;
+            }
+
+            stats.total_hd += 1;
+            process_hd_image(&file, width, height, &in_dir, &out_dir, rename_files, &mut stats);
+        } else if is_valid_video_file(&file) {
+            stats.total_videos += 1;
+            process_video(&file, &in_dir, &out_dir, rename_files, &mut stats);
         }
-
-        stats.total_images += 1;
-        let (width, height) = get_image_dimensions(&file);
-
-        if width <= 1920 {
-            continue;
-        }
-
-        stats.total_hd += 1;
-        process_hd_image(&file, width, height, &in_dir, &out_dir, rename_files, &mut stats);
     }
 
     pb.finish_with_message("done");
@@ -75,6 +77,7 @@ struct Stats {
     total_skipped: u32,
     total_copied: u32,
     total_images: u32,
+    total_videos: u32,
     total_files: u32,
     total_bytes: u64,
     total_suitable: u32,
@@ -91,6 +94,7 @@ impl Stats {
             total_skipped: 0,
             total_copied: 0,
             total_images: 0,
+            total_videos: 0,
             total_files: 0,
             total_bytes: 0,
             total_suitable: 0,
@@ -124,15 +128,17 @@ fn print_usage() {
     println!("Nerja v{} by {}", VERSION, AUTHOR);
     println!("Usage: nerja <SOURCE> [TARGET] [-g]");
     println!();
-    println!("This program scans the SOURCE for *.jpg, *.jpeg or *.png images that are");
-    println!("in landscape orientation, and are more than 1920 pixels wide.");
+    println!("This program scans the SOURCE for images (*.jpg, *.jpeg, *.png, *.webp) and videos (*.mp4, *.mov, *.avi, *.mkv).");
+    println!("Images: landscape orientation, >1920px wide are copied to 'widescreen/' subdirectory.");
+    println!("Images: portrait orientation, >1920px high are copied to 'portrait/' subdirectory.");
+    println!("Videos: all video files are copied to 'videos/' subdirectory.");
     println!();
-    println!("Found images are copied recursively to the TARGET with original folder structure.");
+    println!("Found media files are copied recursively to the TARGET with original folder structure.");
     println!("If TARGET path is not set, Nerja will only scan and report the SOURCE folder.");
     println!();
     println!("Options:");
-    println!("    SOURCE         Source path to scan for images (quote paths with spaces)");
-    println!("    TARGET         Optional. Target folder to copy HD-quality landscape images");
+    println!("    SOURCE         Source path to scan for media files (quote paths with spaces)");
+    println!("    TARGET         Optional. Target folder to copy HD-quality images and videos");
     println!("    -g             Optional when target set. Rename target file names using random GUID");
 }
 
@@ -156,9 +162,22 @@ fn is_valid_image_file(file: &walkdir::DirEntry) -> bool {
     if !file.metadata().unwrap().is_file() {
         return false;
     }
-    let file_path = file.path().display().to_string();
-    let file_extension = get_extension_from_filename(&file_path);
-    matches!(file_extension, Some("jpg") | Some("jpeg") | Some("png"))
+    let file_extension = file.path()
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .map(|s| s.to_lowercase());
+    matches!(file_extension.as_deref(), Some("jpg") | Some("jpeg") | Some("png") | Some("webp"))
+}
+
+fn is_valid_video_file(file: &walkdir::DirEntry) -> bool {
+    if !file.metadata().unwrap().is_file() {
+        return false;
+    }
+    let file_extension = file.path()
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .map(|s| s.to_lowercase());
+    matches!(file_extension.as_deref(), Some("mp4") | Some("mov") | Some("avi") | Some("mkv"))
 }
 
 fn get_image_dimensions(file: &walkdir::DirEntry) -> (u32, u32) {
@@ -187,15 +206,21 @@ fn process_hd_image(file: &walkdir::DirEntry, width: u32, height: u32, in_dir: &
         }
 
         if !out_dir.as_os_str().is_empty() {
-            copy_image(file, in_dir, out_dir, rename_files, stats, "widescreen");
+            copy_media(file, in_dir, out_dir, rename_files, stats, "widescreen");
         }
     } else if width < height {
         stats.total_portrait += 1;
         if height > 1920 {
             if !out_dir.as_os_str().is_empty() {
-                copy_image(file, in_dir, out_dir, rename_files, stats, "portrait");
+                copy_media(file, in_dir, out_dir, rename_files, stats, "portrait");
             }
         }
+    }
+}
+
+fn process_video(file: &walkdir::DirEntry, in_dir: &Path, out_dir: &Path, rename_files: bool, stats: &mut Stats) {
+    if !out_dir.as_os_str().is_empty() {
+        copy_media(file, in_dir, out_dir, rename_files, stats, "videos");
     }
 }
 
@@ -211,7 +236,7 @@ fn is_widescreen_suitable(aspect_ratio: &str) -> bool {
     ratio >= 1.6 && ratio <= 2.7
 }
 
-fn copy_image(file: &walkdir::DirEntry, in_dir: &Path, out_dir: &Path, rename_files: bool, stats: &mut Stats, subdir: &str) {
+fn copy_media(file: &walkdir::DirEntry, in_dir: &Path, out_dir: &Path, rename_files: bool, stats: &mut Stats, subdir: &str) {
     let from = file.path();
     let mut to = out_dir.to_path_buf();
     to = to.join(subdir);
@@ -288,8 +313,9 @@ fn print_stats(stats: &Stats) {
     println!("│ SUMMARY                                                                 │");
     println!("├─────────────────────────────────────────────────────────────────────────┤");
     println!("│ HD Images:        {:5} ({:5} landscape, {:5} portrait)               │", stats.total_hd, stats.total_landscape, stats.total_portrait);
+    println!("│ Videos:           {:5}                                                 │", stats.total_videos);
     println!("│ Wide Screen:      {:5} suitable, {:5} unsuitable                      │", stats.total_suitable, stats.total_unsuitable);
-    println!("│ Processing:       {:5} skipped, {:5} copied (HD landscape)            │", stats.total_skipped, stats.total_copied);
-    println!("│ Total:            {:5} files, {:5} images, {:12} bytes         │", stats.total_files, stats.total_images, stats.total_bytes);
+    println!("│ Processing:       {:5} skipped, {:5} copied                            │", stats.total_skipped, stats.total_copied);
+    println!("│ Total:            {:5} files, {:5} images, {:5} videos, {:12} bytes │", stats.total_files, stats.total_images, stats.total_videos, stats.total_bytes);
     println!("└─────────────────────────────────────────────────────────────────────────┘");
 }
